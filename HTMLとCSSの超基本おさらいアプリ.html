@@ -809,6 +809,24 @@
               display: none;
           }
 
+          /* 「最初から」ボタンを指さす3Dの手を描くキャンバス。位置はボタンに合わせてスクリプトが動かす。
+             白い手が明るい画面に溶けこまないよう、手の形に沿った影を落とす。クリックは素通しする。 */
+          .pointer-fx {
+              position: fixed;
+              top: 0;
+              left: 0;
+              z-index: 1050;
+              width: clamp(130px, 15vw, 180px);
+              aspect-ratio: 1;
+              pointer-events: none;
+              /* 1つ目は手のふちをなぞる細い線、2つ目は下に落ちる影。白いボタンの上でも手の形が分かる。 */
+              filter: drop-shadow(0 0 1.5px rgba(25, 45, 80, 0.85)) drop-shadow(0 6px 8px rgba(15, 35, 55, 0.45));
+          }
+
+          .pointer-fx.is-hidden {
+              display: none;
+          }
+
           /* 全問クリアしたあと、「最初から」ボタンを大きくなったり戻ったりさせて、次の1周へ誘う。 */
           .btn.is-nudging {
               position: relative;
@@ -2197,6 +2215,7 @@
     <canvas class="correct-fx is-hidden" id="correctFxCanvas" aria-hidden="true"></canvas>
     <canvas class="mascot-fx is-hidden" id="mascotFxCanvas" aria-hidden="true"></canvas>
     <canvas class="celebration is-hidden" id="celebrationCanvas" aria-hidden="true"></canvas>
+    <canvas class="pointer-fx is-hidden" id="pointerFxCanvas" aria-hidden="true"></canvas>
     <section class="mascot-debug is-hidden" id="mascotDebug" aria-label="マスコットのデバッグ">
         <div class="mascot-debug-header">
             <strong>マスコット デバッグ</strong>
@@ -5261,6 +5280,7 @@ const mascotCharacters = {
 };
 const mascotFx = createMascotFx();
 const celebration = createCelebration();
+const pointerFx = createPointerFx();
 // 紙吹雪が舞っている間は true。終わってから「最初から」ボタンの呼びかけを始める。
 let isCelebrating = false;
 const allClearSoundDelayMs = 700;
@@ -6303,10 +6323,119 @@ function loadCollectedMascots() {
 
 // 全問クリアしている間、「最初から」ボタンを目立たせる（紙吹雪の最中は、終わるまで待つ）。
 function updateStartOverNudge() {
-  clearHistoryButton.classList.toggle(
-    "is-nudging",
-    cleared.size === lessons.length && !isCelebrating,
-  );
+  const shouldNudge = cleared.size === lessons.length && !isCelebrating;
+  clearHistoryButton.classList.toggle("is-nudging", shouldNudge);
+  // ボタンが大きくなったり戻ったりするのに加えて、3Dの手で指さして知らせる。
+  if (pointerFx) pointerFx.setActive(shouldNudge);
+}
+
+// 「最初から」ボタンを指さす手（three.js）。
+// 白い手袋の手を部品で組み立て、ボタンの右下から人さし指でつんつんと指し示す。
+// WebGLが使えない環境では null を返す（そのときはボタンの拡大アニメだけになる）。
+function createPointerFx() {
+  const canvas = document.querySelector("#pointerFxCanvas");
+  const stage = createFxStage(canvas);
+  if (!stage) return null;
+
+  const { renderer, scene } = stage;
+  // 遠近をつけないカメラ。キャンバスの中での指先の位置を、割合でそのまま決められる。
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20);
+  camera.position.set(0, 0, 5);
+
+  // 真っ白にすると光で飛んで形が分からなくなるので、ほんの少し青みのある白にして陰影を残す。
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xdfe5f2,
+    roughness: 0.5,
+    envMapIntensity: 0.3,
+  });
+  // 手は「指先が原点、指は右向き（+X）」で組み立てる。手のひらや手首は左側（-X）に伸びる。
+  const hand = new THREE.Group();
+  const part = (geometry, x, y, z) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    hand.add(mesh);
+    return mesh;
+  };
+  // 横向き（X方向）の、丸みのある棒。指に使う。
+  const stick = (radius, length) => {
+    const geometry = new THREE.CapsuleGeometry(radius, length, 10, 22);
+    geometry.rotateZ(Math.PI / 2);
+    return geometry;
+  };
+
+  // 人さし指
+  part(stick(0.09, 0.56), -0.37, 0, 0);
+  // にぎった手のひら
+  const palm = new THREE.SphereGeometry(0.31, 36, 24);
+  palm.scale(1.02, 1.06, 0.84);
+  part(palm, -0.98, -0.16, 0);
+  // 折りたたんだ3本の指（人さし指の下に縦に並ぶ）
+  [-0.15, -0.32, -0.48].forEach((y, index) => {
+    part(stick(0.092, 0.17), -0.73 + index * 0.012, y, 0.06);
+  });
+  // 親指（にぎった指の上にかぶさる）
+  const thumb = part(stick(0.098, 0.24), -0.88, 0.13, 0.17);
+  thumb.rotation.z = -0.42;
+  // 手首の帯と、ふくらんだ袖口
+  const band = new THREE.CylinderGeometry(0.245, 0.255, 0.1, 36);
+  band.rotateZ(Math.PI / 2);
+  part(band, -1.3, -0.16, 0);
+  const cuff = new THREE.TorusGeometry(0.2, 0.135, 20, 40);
+  cuff.rotateY(Math.PI / 2);
+  part(cuff, -1.44, -0.16, 0);
+  hand.scale.setScalar(0.9);
+
+  // pivot が「どちらを指すか」と「指先の位置」を決める。hand はその中で前後に動く。
+  const pivot = new THREE.Group();
+  pivot.add(hand);
+  scene.add(pivot);
+  // 指す向き：左上（ボタンの右下から見上げる向き）。
+  pivot.rotation.z = (Math.PI * 3) / 4;
+  // 指先がいちばん近づいたときの位置（キャンバスの中心が0、端が±1）。
+  const tipX = -0.56;
+  const tipY = 0.6;
+  pivot.position.set(tipX, tipY, 0);
+  // 同じ位置を、キャンバスの左上からの割合にしたもの。ボタンに位置を合わせるのに使う。
+  const tipLeft = (tipX + 1) / 2;
+  const tipTop = (1 - tipY) / 2;
+
+  const prefersStill = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let isActive = false;
+  let frameId = 0;
+
+  function drawFrame(now) {
+    frameId = requestAnimationFrame(drawFrame);
+
+    // ボタンの下の辺の真ん中に、指先が来るようにキャンバスを動かす（スクロールやレイアウトの変化に毎回ついていく）。
+    const target = clearHistoryButton.getBoundingClientRect();
+    const size = canvas.clientWidth;
+    canvas.style.left = target.left + target.width / 2 - size * tipLeft + "px";
+    canvas.style.top = target.bottom - 5 - size * tipTop + "px";
+
+    // つんつん：指先を引いては近づける。動きを減らす設定の人には、指したまま止めておく。
+    const seconds = now / 1000;
+    const poke = prefersStill ? 0 : Math.abs(Math.sin(seconds * 4.2));
+    hand.position.x = -(0.03 + poke * 0.24);
+    // 立体だと分かるよう、指す向きを軸に少しだけ手首を回す。
+    hand.rotation.x = prefersStill ? 0.2 : 0.2 + Math.sin(seconds * 2.1) * 0.28;
+    hand.rotation.y = prefersStill ? 0 : Math.sin(seconds * 1.4) * 0.12;
+    renderer.render(scene, camera);
+  }
+
+  return {
+    setActive(shouldShow) {
+      if (shouldShow === isActive) return;
+
+      isActive = shouldShow;
+      cancelAnimationFrame(frameId);
+      canvas.classList.toggle("is-hidden", !shouldShow);
+      if (!shouldShow) return;
+
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+      frameId = requestAnimationFrame(drawFrame);
+    },
+  };
 }
 
 function celebrate() {

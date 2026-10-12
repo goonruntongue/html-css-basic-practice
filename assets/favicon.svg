@@ -1,1 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4fa8ff"/><stop offset="1" stop-color="#1d63d8"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#b)"/><path d="M32 10.6c12.500 0 20 19 20 30 0 11.500-8.500 18-20 18s-20-6.500-20-18c0-11 7.500-30 20-30z" fill="#1245a8"/><path d="M32 9c12.500 0 20 19 20 30 0 11.500-8.500 18-20 18s-20-6.500-20-18c0-11 7.500-30 20-30z" fill="#fff"/><g fill="none" stroke="#1d63d8" stroke-width="5.200" stroke-linecap="round" stroke-linejoin="round"><path d="M27.500 29.500 20 37l7.500 7.500"/><path d="M36.500 29.500 44 37l-7.500 7.500"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="HTMLとCSSのおさらいアプリ">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#edf5f3"/>
+      <stop offset="1" stop-color="#c9ded9"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fffef8"/>
+      <stop offset="0.62" stop-color="#fbf4df"/>
+      <stop offset="1" stop-color="#e7dcc0"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f928b"/>
+      <stop offset="1" stop-color="#226d68"/>
+    </linearGradient>
+    <filter id="short-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="5" stdDeviation="2.2" flood-color="#4f817b" flood-opacity=".42"/>
+    </filter>
+  </defs>
+  <!-- 親面の短い下辺。浮き過ぎず、面取りだけを感じる土台。 -->
+  <rect x="7" y="10" width="166" height="163" rx="43" fill="#96bdb6"/>
+  <rect x="7" y="6" width="166" height="160" rx="43" fill="url(#base)" stroke="#fff" stroke-opacity=".9" stroke-width="2"/>
+  <path d="M33 18h114c13 0 22 8 24 20" fill="none" stroke="#fff" stroke-linecap="round" stroke-opacity=".72" stroke-width="3"/>
+  <!-- アイボリーのコードバッジ。上面の光と短い下辺でベベル感を作る。 -->
+  <g filter="url(#short-shadow)">
+    <circle cx="90" cy="95" r="59" fill="#b7cfc9"/>
+    <circle cx="90" cy="90" r="59" fill="url(#badge)" stroke="#fffdf6" stroke-width="2"/>
+    <path d="M48 83c4-24 22-39 46-39 16 0 31 7 40 19" fill="none" stroke="#fff" stroke-linecap="round" stroke-opacity=".9" stroke-width="5"/>
+    <rect x="48" y="71" width="84" height="51" rx="15" fill="#1c625e" opacity=".24"/>
+    <rect x="48" y="67" width="84" height="51" rx="15" fill="url(#screen)" stroke="#75b6ac" stroke-width="1.5"/>
+    <path d="M63 77h54" stroke="#b9e2d8" stroke-linecap="round" stroke-opacity=".55" stroke-width="2.5"/>
+    <path d="m75 84-11 8 11 8M105 84l11 8-11 8M96 82l-7 21" fill="none" stroke="#fffdf1" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"/>
+  </g>
+  <circle cx="130" cy="49" r="7" fill="#ef9b7d"/>
+  <path d="M126 46c1-3 5-5 8-3" fill="none" stroke="#fff4df" stroke-linecap="round" stroke-width="1.8"/>
+</svg>

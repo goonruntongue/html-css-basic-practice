@@ -13,8 +13,12 @@
     <!-- PWA（スマホやパソコンにアプリとして入れられる）ための設定。
          manifest.webmanifest・sw.js・icons フォルダを、このHTMLと同じ場所に置いて https で公開したときに働く。
          HTML1枚だけを配ったときは、これらが無くてもアプリはふつうに動く（アプリとして入れる機能だけが使えない）。 -->
+    <!-- 新しい外部アイコンを最後に読み込み、埋め込みの旧アイコンより優先させる -->
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+    <link rel="icon" type="image/png" sizes="180x180" href="assets/favicon-180.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/favicon-180.png">
     <link rel="manifest" href="manifest.webmanifest">
-    <meta name="theme-color" content="#2b7de9">
+    <meta name="theme-color" content="#dcefeb">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="HTML/CSSおさらい">

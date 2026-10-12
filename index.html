@@ -2232,6 +2232,8 @@
         <div class="mascot-debug-actions">
             <button class="btn secondary" type="button" data-action="pool-all">全員を育て終えたことにする</button>
             <button class="btn secondary" type="button" data-action="pool-none">育て終えた記録を消す</button>
+            <button class="btn secondary" type="button" data-action="star-add">星を1つ増やす</button>
+            <button class="btn secondary" type="button" data-action="shiny-toggle">色違いを切り替え</button>
         </div>
     </section>
     <div class="answer-modal-backdrop is-hidden" id="answerModal" aria-hidden="true">
@@ -5205,6 +5207,9 @@ const storageKeys = {
   clearCount: "learning.clearCount",
   roundCounted: "learning.roundCounted",
   bestBadge: "learning.bestBadge",
+  mascotGrown: "learning.mascotGrown",
+  shinyMascots: "learning.shinyMascots",
+  shinyRound: "learning.shinyRound",
   elapsedMs: "learning.elapsedMs",
 };
 const previousTypeChoiceIndex = lessons.findIndex(
@@ -5256,10 +5261,12 @@ const correctFx = createCorrectFx();
 const badgeFx = createBadgeFx();
 // マスコットの種類。ゲームを始めるたびに、この中からランダムに1体が選ばれる。
 // frames=卵からかえるまでの絵（11コマ）、stageModels=殻が割れてから出るまで（コマ5〜8）の3Dモデル、
-// model=かえったあとの骨つき3Dモデル、codeWindow=手に持つ画面の配色。
+// model=かえったあとの骨つき3Dモデル、codeWindow=手に持つ画面の配色、
+// shinyHue=色違いのときに色あいを回す角度（ラジアン）。
 const mascotCharacters = {
   sprout: {
     label: "めばえ",
+    shinyHue: 3.7,
     frames: mascotFrameDataUrls,
     stageModels: mascotStageModelBase64.sprout,
     model: mascotModelBase64,
@@ -5267,6 +5274,7 @@ const mascotCharacters = {
   },
   bunny: {
     label: "うさぎ",
+    shinyHue: 4.0,
     frames: mascotBunnyFrameDataUrls,
     stageModels: mascotStageModelBase64.bunny,
     model: mascotBunnyModelBase64,
@@ -5274,6 +5282,7 @@ const mascotCharacters = {
   },
   starbot: {
     label: "スターボット",
+    shinyHue: 4.4,
     frames: mascotStarbotFrameDataUrls,
     stageModels: mascotStageModelBase64.starbot,
     model: mascotStarbotModelBase64,
@@ -5295,7 +5304,13 @@ let clearCount = loadClearCount();
 let bestBadge = loadBestBadge();
 // 今回のゲームで育てるマスコット。
 let currentMascot = pickMascotCharacter(false);
-if (mascotFx) mascotFx.setCharacter(currentMascot);
+// キャラクターごとの「育て終えた回数」。並んでいる子の頭の上の星になり、3回で王冠に変わる。
+const mascotGrownCounts = loadMascotGrownCounts();
+// 色違いで育て終えたことのあるキャラクター。並んでいる子が、その色違いの姿になる。
+const shinyMascots = loadShinyMascots();
+// 今回の卵が色違いかどうか（3体とも育て終えたあとの周で、ときどき色違いになる）。
+let isShinyRound = pickShinyRound(false);
+if (mascotFx) mascotFx.setCharacter(currentMascot, isShinyRound);
 refreshMascotPool();
 let isMascotDebugOpen = false;
 // 読み込み直後のバッジ表示では、飛んでくる演出をしない。
@@ -5532,15 +5547,23 @@ function updateAllCompletedState() {
   }
   // マスコットは「クリアした問題数」と同じコマを見せる。1つ進んだときだけ演出つき。
   // 最後まで育てたマスコットは、コレクションに加える。
+  // （同じキャラクターを何度育てても、並ぶのは1体だけ）
   if (isAllCompleted && !collectedMascots.includes(currentMascot)) {
     collectedMascots.push(currentMascot);
     saveCollectedMascots();
+    // 育て終えたその場で、小さい姿も並びに加わる。
+    if (!isMascotDebugOpen) refreshMascotPool();
   }
   // 全問クリアの回数は、1周につき1回だけ数える（同じ周の中で解き直しても増えない）。
   if (isAllCompleted && localStorage.getItem(storageKeys.roundCounted) !== "true") {
     localStorage.setItem(storageKeys.roundCounted, "true");
     clearCount += 1;
     saveClearCount();
+    // 育て終えた回数を1つ増やす（星が1つ増える）。色違いの卵だったら、色違いとして記録する。
+    mascotGrownCounts[currentMascot] = (mascotGrownCounts[currentMascot] || 0) + 1;
+    if (isShinyRound && !shinyMascots.includes(currentMascot)) shinyMascots.push(currentMascot);
+    saveMascotRecords();
+    if (!isMascotDebugOpen) refreshMascotPool();
     updateScore();
     // いま解き終えたとき（ページを開いた直後ではないとき）だけ、紙吹雪でお祝いする。
     if (isAppReady) celebrate();
@@ -6557,13 +6580,71 @@ function saveBestBadge() {
   else localStorage.removeItem(storageKeys.bestBadge);
 }
 
+function loadMascotGrownCounts() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(storageKeys.mascotGrown) || "{}") || {};
+  } catch (_error) {
+    saved = {};
+  }
+  const counts = {};
+  Object.keys(mascotCharacters).forEach((id) => {
+    const count = Number(saved[id]);
+    // 回数を数える前の版で育て終えていた子は、1回育てたものとして扱う。
+    counts[id] = Number.isInteger(count) && count > 0 ? count : collectedMascots.includes(id) ? 1 : 0;
+  });
+  return counts;
+}
+
+function loadShinyMascots() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKeys.shinyMascots) || "[]");
+    return saved.filter((id) => Boolean(mascotCharacters[id]));
+  } catch (_error) {
+    return [];
+  }
+}
+
+function saveMascotRecords() {
+  localStorage.setItem(storageKeys.mascotGrown, JSON.stringify(mascotGrownCounts));
+  localStorage.setItem(storageKeys.shinyMascots, JSON.stringify(shinyMascots));
+}
+
+// 今回の卵を色違いにするかどうかを決める。
+// 色違いが出るのは3体とも育て終えたあと（4周目以降）だけで、確率は15%。
+// 育てている途中（1問以上クリア済み）で開き直したときは、前に決めたままにする。
+// URLの末尾に ?shiny を付けると、必ず色違いになる（確認用）。
+function pickShinyRound(forceNew) {
+  if (new URLSearchParams(location.search).has("shiny")) return true;
+  if (!forceNew && cleared.size > 0) return localStorage.getItem(storageKeys.shinyRound) === "true";
+
+  const isEveryoneGrown = Object.keys(mascotCharacters).every((id) => collectedMascots.includes(id));
+  const isShiny = isEveryoneGrown && Math.random() < 0.15;
+  localStorage.setItem(storageKeys.shinyRound, String(isShiny));
+  return isShiny;
+}
+
 function saveCollectedMascots() {
   localStorage.setItem(storageKeys.collectedMascots, JSON.stringify(collectedMascots));
 }
 
-// 育て終えたマスコットを、小さくして画面に並べる。shown（いま大きく出しているキャラクター）は並べない。
-function refreshMascotPool(shown = currentMascot) {
-  if (mascotFx) mascotFx.setPool(collectedMascots.filter((id) => id !== shown));
+// 育て終えたマスコットを、小さくして画面に並べる。
+// 同じキャラクターをもう一度卵から育てている間も、育て終えた小さい姿は並んだままにする。
+// 新しく育て終えた子ほど、育てているキャラクターの近く（右側）に並ぶ。
+// 頭の上には育て終えた回数ぶんの星が出て（3回で王冠）、色違いで育てたことのある子は色違いの姿で並ぶ。
+function refreshMascotPool() {
+  if (!mascotFx) return;
+
+  mascotFx.setPool(
+    collectedMascots
+      .slice()
+      .reverse()
+      .map((id) => ({
+        id,
+        stars: mascotGrownCounts[id] || 1,
+        isShiny: shinyMascots.includes(id),
+      })),
+  );
 }
 
 // たまごのマスコット（three.js）：画面右下でふわふわ浮かび、1問正解するごとに1コマ進む。
@@ -6590,6 +6671,90 @@ function createMascotFx() {
   let footY = -0.68;
   const rig = new THREE.Group();
   scene.add(rig);
+
+  // 色違いのための仕掛け。絵やモデルの色を塗り直すのではなく、描くときに色あい（色相）を回す。
+  // actor.hue.value が回す角度（ラジアン）で、0ならもとの色。キャラクターの絵・コマ用モデル・骨つきモデルの
+  // すべてが同じ actor.hue を見るので、値を変えるだけでそのキャラクター全体の色が変わる。
+  function tintMaterial(material, actor) {
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.hueShift = actor.hue;
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          "#include <common>\n" +
+            "uniform float hueShift;\n" +
+            "vec3 shiftHue(vec3 color) {\n" +
+            "  const vec3 grey = vec3(0.57735);\n" +
+            "  float c = cos(hueShift);\n" +
+            "  return color * c + cross(grey, color) * sin(hueShift) + grey * dot(grey, color) * (1.0 - c);\n" +
+            "}",
+        )
+        .replace(
+          "#include <map_fragment>",
+          "#include <map_fragment>\ndiffuseColor.rgb = shiftHue(diffuseColor.rgb);",
+        )
+        .replace(
+          "#include <emissivemap_fragment>",
+          "#include <emissivemap_fragment>\ntotalEmissiveRadiance = shiftHue(totalEmissiveRadiance);",
+        );
+    };
+    // 色あいを回す版は、ふつうの版とは別のプログラムとして扱わせる。
+    material.customProgramCacheKey = () => "mascot-hue";
+  }
+
+  // ---- 星と王冠：並んでいる子の頭の上に、育て終えた回数を出す ----
+  const topperMaterial = createGlossyMaterial(0xf5b21f);
+  const starOutline = new THREE.Shape();
+  for (let point = 0; point <= 10; point += 1) {
+    const angle = Math.PI / 2 + (point / 10) * Math.PI * 2;
+    const radius = point % 2 ? 0.045 : 0.1;
+    if (point === 0) starOutline.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+    else starOutline.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+  }
+  const starGeometry = new THREE.ExtrudeGeometry(starOutline, {
+    depth: 0.03,
+    bevelEnabled: true,
+    bevelThickness: 0.018,
+    bevelSize: 0.018,
+    bevelSegments: 3,
+  });
+  starGeometry.translate(0, 0, -0.015);
+  const crownBand = new THREE.CylinderGeometry(0.13, 0.12, 0.07, 28);
+  const crownSpike = new THREE.ConeGeometry(0.04, 0.11, 14);
+  const crownGem = new THREE.SphereGeometry(0.026, 12, 10);
+  const gemMaterial = createGlossyMaterial(0xf0443a);
+  // 3回育て終えると、星の代わりに王冠になる。
+  const crownAt = 3;
+
+  // actor.stars の数に合わせて、頭の上の飾りを作り直す（モデルの読み込みが済んでいるときだけ）。
+  function buildTopper(actor) {
+    if (!actor.model) return;
+
+    if (actor.topper) actor.model.root.remove(actor.topper);
+    actor.topper = null;
+    if (actor.stars <= 0) return;
+
+    const topper = new THREE.Group();
+    if (actor.stars >= crownAt) {
+      topper.add(new THREE.Mesh(crownBand, topperMaterial));
+      for (let spike = 0; spike < 5; spike += 1) {
+        const angle = (spike / 5) * Math.PI * 2;
+        const cone = new THREE.Mesh(crownSpike, topperMaterial);
+        cone.position.set(Math.cos(angle) * 0.105, 0.085, Math.sin(angle) * 0.105);
+        const gem = new THREE.Mesh(crownGem, gemMaterial);
+        gem.position.set(Math.cos(angle) * 0.105, 0.15, Math.sin(angle) * 0.105);
+        topper.add(cone, gem);
+      }
+    } else {
+      for (let star = 0; star < actor.stars; star += 1) {
+        const mesh = new THREE.Mesh(starGeometry, topperMaterial);
+        mesh.position.x = (star - (actor.stars - 1) / 2) * 0.24;
+        topper.add(mesh);
+      }
+    }
+    actor.model.root.add(topper);
+    actor.topper = topper;
+  }
 
   // 輪郭からの距離が大きいほど手前にふくらむ高さマップ（0〜1）を作る。
   function buildHeights(image) {
@@ -6707,6 +6872,7 @@ function createMascotFx() {
     });
     material.color.setScalar(0.22);
     material.emissive.setScalar(0.74);
+    tintMaterial(material, actor);
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.visible = false;
@@ -6928,7 +7094,8 @@ function createMascotFx() {
   let pool = [];
   const poolShadows = [];
   // プールの1体ぶんの横幅（育てているキャラクターの枠を1としたときの割合）と、身長・足もとの高さ。
-  const poolSlotRatio = 0.42;
+  const maxPoolSlotRatio = 0.42;
+  let poolSlotRatio = maxPoolSlotRatio;
   const poolBodyHeight = 0.62;
   const poolGroundY = -0.8;
   // カメラに写る範囲の高さ（原点の奥行きで）。キャンバスが横に伸びても、この高さは変わらない。
@@ -6987,9 +7154,12 @@ function createMascotFx() {
   // つまみを、いま画面に出ている「育て終えたキャラクター」の位置に合わせる。
   // 対象は、プールに並ぶキャラクターと、最後のコマまで育った本体。
   function updateHandles() {
-    Object.keys(actors).forEach((id) => {
-      if (actors[id].handle) actors[id].handle.style.display = "none";
-    });
+    Object.keys(actors)
+      .map((id) => actors[id])
+      .concat(pool)
+      .forEach((actor) => {
+        if (actor.handle) actor.handle.style.display = "none";
+      });
     const frame = canvas.getBoundingClientRect();
     const size = frame.height;
     if (!size) return;
@@ -7030,7 +7200,7 @@ function createMascotFx() {
 
     const root = actor.model.root;
     root.rotation.set(0, 0, 0);
-    if (pool.includes(actor)) {
+    if (actor.isPooled) {
       scene.add(root);
       return;
     }
@@ -7069,6 +7239,15 @@ function createMascotFx() {
       restRotations = actor.rest;
       codeWindow = actor.codeWindow;
       poseModel(stageCount, time + phase, 0);
+      if (actor.topper) {
+        // 飾りは体と一緒には回さず、いつも画面のほうを向かせる（王冠だけは、ゆっくり回り続ける）。
+        actor.topper.position.y = 1.2 + Math.sin(time * 2.4 + phase) * 0.025;
+        actor.topper.rotation.set(
+          -root.rotation.x,
+          -root.rotation.y + (actor.stars >= crownAt ? time * 1.2 : 0),
+          0,
+        );
+      }
       [model, restRotations, codeWindow] = borrowed;
 
       if (!poolShadows[index]) {
@@ -7122,9 +7301,12 @@ function createMascotFx() {
     isReady = actor.ready;
   }
 
-  function createActor(id) {
+  // isPooled が true なら「画面に並べておく用」の1体。育てる用（キャラクターごとに1つ）とは別に作るので、
+  // 同じキャラクターが、育てている卵と、育て終えた小さい姿の両方で同時に出られる。
+  function createActor(id, isPooled) {
     const actor = {
       id,
+      isPooled,
       frames: [],
       // コマ番号 → 絵の中の位置、コマ番号 → そのコマ用の3Dモデル。
       frameBoxes: {},
@@ -7139,9 +7321,13 @@ function createMascotFx() {
       rigRequested: false,
       // ドラッグで回した向き。yaw=左右（パン）、pitch=上下（チルト）、hold=ひとりでに首を振る動きを止めている度合い（0〜1）。
       look: { yaw: 0, pitch: 0, hold: 0, isDragging: false, releasedAt: 0 },
+      // 色あいを回す角度（0ならもとの色）、頭の上に出す星の数（3以上で王冠）と、その飾り。
+      hue: { value: 0 },
+      stars: 0,
+      topper: null,
       handle: null,
     };
-    actors[id] = actor;
+    if (!isPooled) actors[id] = actor;
     return actor;
   }
 
@@ -7175,6 +7361,7 @@ function createMascotFx() {
       loadGlb(definition.stageModels[key], (loaded) => {
         loaded.mesh.geometry.computeBoundingBox();
         loaded.root.userData.bounds = loaded.mesh.geometry.boundingBox;
+        tintMaterial(loaded.mesh.material, actor);
         loaded.root.visible = false;
         rig.add(loaded.root);
         actor.stageModels[key] = loaded.root;
@@ -7194,12 +7381,14 @@ function createMascotFx() {
     loadGlb(definition.model, (loaded) => {
       actor.model = loaded;
       keepHeadRound(loaded.mesh);
+      tintMaterial(loaded.mesh.material, actor);
       Object.keys(loaded.bones).forEach((name) => {
         actor.rest[name] = loaded.bones[name].quaternion.clone();
       });
       actor.codeWindow = buildCodeWindow(definition.codeWindow);
       loaded.root.add(actor.codeWindow);
       placeModel(actor);
+      buildTopper(actor);
       if (actor !== active) return;
 
       useActor(actor);
@@ -7209,6 +7398,13 @@ function createMascotFx() {
 
   // キャンバスの大きさに描画を合わせる。プールの人数ぶん、キャンバスは左へ伸びる。
   function fit() {
+    // 並ぶ人数ぶん左へ伸ばす。画面の幅に入りきらないときは、1体ぶんの幅を詰める。
+    const size = canvas.clientHeight;
+    const viewWidth = window.innerWidth;
+    poolSlotRatio =
+      size && viewWidth && pool.length
+        ? Math.min(maxPoolSlotRatio, Math.max(0.2, ((viewWidth - 24) / size - 1) / pool.length))
+        : maxPoolSlotRatio;
     canvas.style.setProperty("--mascot-columns", String(1 + poolSlotRatio * pool.length));
     if (!canvas.clientHeight) return;
 
@@ -7325,8 +7521,13 @@ function createMascotFx() {
   return {
     stageCount,
     // 表示するキャラクターを切り替える（初めて使うキャラクターは、ここで読み込みを始める）。
-    setCharacter(id) {
-      if (active && active.id === id) return;
+    // isShiny が true なら、色違いで表示する。
+    setCharacter(id, isShiny) {
+      const hue = isShiny ? mascotCharacters[id].shinyHue : 0;
+      if (active && active.id === id) {
+        active.hue.value = hue;
+        return;
+      }
 
       if (active) {
         active.frames.forEach((mesh) => {
@@ -7338,9 +7539,8 @@ function createMascotFx() {
         if (active.model) active.model.root.visible = false;
       }
       transition = null;
-      active = actors[id] || createActor(id);
-      // 育てるキャラクターは、プールには並べない。
-      pool = pool.filter((actor) => actor !== active);
+      active = actors[id] || createActor(id, false);
+      active.hue.value = hue;
       loadGrowth(active);
       loadRig(active);
       placeModel(active);
@@ -7351,22 +7551,39 @@ function createMascotFx() {
       showFrame(targetStage);
       setLoopRunning(true);
     },
-    // プールに並べるキャラクター（育て終えたもの）を決める。いま育てているキャラクターは並べない。
-    setPool(ids) {
-      const next = ids
-        .filter((id) => !active || id !== active.id)
-        .map((id) => actors[id] || createActor(id));
-      pool.forEach((actor) => {
-        if (!next.includes(actor) && actor !== active && actor.model) {
-          actor.model.root.visible = false;
+    // プールに並べるキャラクター（育て終えたもの）を決める。いま同じキャラクターを卵から育てていても並べる。
+    // entries は [{ id, stars, isShiny }]。stars は頭の上に出す星の数、isShiny は色違いかどうか。
+    setPool(entries) {
+      const ids = entries.map((entry) => entry.id);
+      const isSameLineup = ids.join() === pool.map((actor) => actor.id).join();
+      if (!isSameLineup) {
+        // すでに並んでいる1体はそのまま使い、足りないぶんだけ新しく用意する。
+        const spare = pool.slice();
+        const next = ids.map((id) => {
+          const index = spare.findIndex((actor) => actor.id === id);
+          return index >= 0 ? spare.splice(index, 1)[0] : createActor(id, true);
+        });
+        // 並ばなくなった1体は片付ける。
+        spare.forEach((actor) => {
+          if (actor.model) scene.remove(actor.model.root);
+          if (actor.handle) actor.handle.remove();
+          actor.handle = null;
+        });
+        pool = next;
+        pool.forEach((actor) => {
+          loadRig(actor);
+          placeModel(actor);
+        });
+      }
+      // 色と星の数は、並びが同じでも変わることがあるので毎回合わせる。
+      pool.forEach((actor, index) => {
+        actor.hue.value = entries[index].isShiny ? mascotCharacters[actor.id].shinyHue : 0;
+        if (actor.stars !== entries[index].stars) {
+          actor.stars = entries[index].stars;
+          buildTopper(actor);
         }
       });
-      pool = next;
-      pool.forEach((actor) => {
-        loadRig(actor);
-        placeModel(actor);
-      });
-      fit();
+      if (!isSameLineup) fit();
     },
     // stageNumber: 見せるコマ番号（0は横たわる卵）。animate が true で、ちょうど1つ進むときだけ演出する。
     // delayMs: 演出が動き出すまでの待ち時間。省略時は正解音が鳴り終わるまで待つ。
@@ -7423,11 +7640,13 @@ function setupMascotDebug() {
   });
 
   let shownCharacter = currentMascot;
+  // パネルで見ているキャラクターを、色違いで出すかどうか。
+  let isShownShiny = isShinyRound;
 
   function showCharacter(id) {
     shownCharacter = id;
-    mascotFx.setCharacter(id);
-    refreshMascotPool(id);
+    mascotFx.setCharacter(id, isShownShiny);
+    refreshMascotPool();
     characterButtons.querySelectorAll("button").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.character === id));
     });
@@ -7464,6 +7683,7 @@ function setupMascotDebug() {
     isMascotDebugOpen = shouldOpen;
     panel.classList.toggle("is-hidden", !shouldOpen);
     // 開くとき・閉じるときは、今回のゲームで選ばれているキャラクターと進み具合に合わせる。
+    isShownShiny = isShinyRound;
     showCharacter(currentMascot);
     if (shouldOpen) show(cleared.size, false);
     else mascotFx.setStage(cleared.size, false);
@@ -7482,9 +7702,31 @@ function setupMascotDebug() {
     else if (button.dataset.action === "pool-all" || button.dataset.action === "pool-none") {
       // 保存されているコレクションそのものを書き換える（確認用）。
       collectedMascots.length = 0;
-      if (button.dataset.action === "pool-all") collectedMascots.push(...Object.keys(mascotCharacters));
+      shinyMascots.length = 0;
+      const isAll = button.dataset.action === "pool-all";
+      if (isAll) collectedMascots.push(...Object.keys(mascotCharacters));
+      Object.keys(mascotGrownCounts).forEach((id) => {
+        mascotGrownCounts[id] = isAll ? 1 : 0;
+      });
       saveCollectedMascots();
-      refreshMascotPool(shownCharacter);
+      saveMascotRecords();
+      refreshMascotPool();
+    } else if (button.dataset.action === "star-add") {
+      // いま見ているキャラクターを、もう1回育て終えたことにする（星が1つ増え、3回で王冠になる）。
+      if (!collectedMascots.includes(shownCharacter)) collectedMascots.push(shownCharacter);
+      mascotGrownCounts[shownCharacter] = (mascotGrownCounts[shownCharacter] || 0) + 1;
+      saveCollectedMascots();
+      saveMascotRecords();
+      refreshMascotPool();
+    } else if (button.dataset.action === "shiny-toggle") {
+      // いま見ているキャラクターの色違いを切り替える（並んでいる子の記録も一緒に切り替える）。
+      isShownShiny = !isShownShiny;
+      const index = shinyMascots.indexOf(shownCharacter);
+      if (isShownShiny && index < 0) shinyMascots.push(shownCharacter);
+      if (!isShownShiny && index >= 0) shinyMascots.splice(index, 1);
+      saveMascotRecords();
+      mascotFx.setCharacter(shownCharacter, isShownShiny);
+      refreshMascotPool();
     }
   });
 
@@ -8097,7 +8339,8 @@ document.addEventListener("click", (event) => {
 
 // 次の1周を始める。
 // isFullReset が false（最初から）：今の周の進み具合・タイマー・出題パターンだけを新しくする。
-//   育て終えたマスコット・全問クリアの回数・タイトル横のバッジは残り、マスコットはまだ育てていない子が優先して選ばれる。
+//   育て終えたマスコット（星の数・色違いの記録も）・全問クリアの回数・タイトル横のバッジは残り、
+//   マスコットはまだ育てていない子が優先して選ばれる。
 // isFullReset が true（初期化）：育て終えたマスコット・全問クリアの回数・バッジも消して、完全に最初の状態に戻す。
 // どちらの場合も、サウンドとテーマの設定は残す。
 function startOver(isFullReset) {
@@ -8108,7 +8351,12 @@ function startOver(isFullReset) {
     collectedMascots.length = 0;
     clearCount = 0;
     bestBadge = "";
+    shinyMascots.length = 0;
+    Object.keys(mascotGrownCounts).forEach((id) => {
+      mascotGrownCounts[id] = 0;
+    });
   }
+  saveMascotRecords();
   saveCollectedMascots();
   saveClearCount();
   saveBestBadge();
@@ -8118,7 +8366,8 @@ function startOver(isFullReset) {
   pickLessonVariants();
   // 最初からやり直すので、マスコットも選び直す。
   currentMascot = pickMascotCharacter(true);
-  if (mascotFx && !isMascotDebugOpen) mascotFx.setCharacter(currentMascot);
+  isShinyRound = pickShinyRound(true);
+  if (mascotFx && !isMascotDebugOpen) mascotFx.setCharacter(currentMascot, isShinyRound);
   if (!isMascotDebugOpen) refreshMascotPool();
   resetAnswers();
   resetTimer();
@@ -8134,7 +8383,9 @@ function startOver(isFullReset) {
   renderLessonList();
   feedback.innerHTML = isFullReset
     ? "<strong>すべての記録を消して、最初の状態に戻しました。</strong>コードを書くと自動で判定します。"
-    : "<strong>最初からやり直します。</strong>コードを書くと自動で判定します。";
+    : isShinyRound
+      ? "<strong>色違いの卵が出ました！</strong>コードを書くと自動で判定します。"
+      : "<strong>最初からやり直します。</strong>コードを書くと自動で判定します。";
 }
 
 clearHistoryButton.addEventListener("click", () => startOver(false));

@@ -1773,6 +1773,28 @@
               filter: drop-shadow(0 3px 4px rgba(40, 60, 70, 0.30));
           }
 
+          /* スマホやタブレットの幅では、バッジをタイトルの右に「並べて」置く。
+             （PCの幅のように浮かせて重ねると、下の説明文にかぶって読めなくなる）
+             タイトルの文字は、バッジのぶんだけ手前で折り返す。 */
+          @media (max-width: 900px) {
+              .site-title {
+                  padding-right: 0;
+              }
+
+              .site-title > span {
+                  flex: 1 1 auto;
+                  min-width: 0;
+              }
+
+              .all-ok-badge {
+                  position: static;
+                  flex: 0 0 auto;
+                  transform: none;
+                  width: 2.1lh;
+                  height: 2.1lh;
+              }
+          }
+
           /* 判定エリア：1行目がメッセージ、その下にクリアの条件が横に並ぶ（入りきらなければ折り返す）。
              条件は最初から全部出ているので、判定の前後で行数が変わらない。 */
           .feedback .feedback-checks {
